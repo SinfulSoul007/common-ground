@@ -3,10 +3,9 @@
 import { useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useSessionStore } from '@/store/sessionStore';
-import { fetchSession } from '@/lib/supabase/sessions';
 
 export function useRealtimeSession(sessionId: string) {
-  const hydrateFromSupabase = useSessionStore((s) => s.hydrateFromSupabase);
+  const hydrateFromServer = useSessionStore((s) => s.hydrateFromServer);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -24,10 +23,17 @@ export function useRealtimeSession(sessionId: string) {
           filter: `id=eq.${sessionId}`,
         },
         async () => {
-          // Re-fetch full session state on any change
-          const sessionState = await fetchSession(supabase, sessionId);
-          if (sessionState) {
-            hydrateFromSupabase(sessionState);
+          // Re-fetch full session state via API route (not client Supabase)
+          try {
+            const res = await fetch(`/api/session/${sessionId}/state`);
+            if (res.ok) {
+              const sessionState = await res.json();
+              if (sessionState?.sessionId) {
+                hydrateFromServer(sessionState);
+              }
+            }
+          } catch (err) {
+            console.warn('Realtime re-fetch failed:', err);
           }
         }
       )
@@ -36,5 +42,5 @@ export function useRealtimeSession(sessionId: string) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, hydrateFromSupabase]);
+  }, [sessionId, hydrateFromServer]);
 }

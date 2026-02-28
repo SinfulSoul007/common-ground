@@ -1,8 +1,8 @@
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import Link from 'next/link';
+import Image from 'next/image';
 import { useSession } from '@/hooks/useSession';
 import { useUser } from '@/hooks/useUser';
 import { createClient } from '@/lib/supabase/client';
@@ -10,7 +10,6 @@ import { PHASE_NAMES } from '@/lib/constants';
 
 export default function SessionLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
-  const router = useRouter();
   const sessionId = params.sessionId as string;
   const { currentPhase, role } = useSession(sessionId);
   const { profile } = useUser();
@@ -25,7 +24,7 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push('/');
+    window.location.href = '/';
   };
 
   const phases = [1, 2, 3] as const;
@@ -34,11 +33,42 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
     <div className="min-h-screen bg-surface flex flex-col">
       {/* Top Bar */}
       <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
-        {/* Left: Logo + Dashboard Link */}
+        {/* Left: Logo + Nav Links — use full navigation so dashboard/forum load cleanly outside session context */}
         <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
-            Common Ground
-          </Link>
+          <a
+            href="/dashboard"
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.href = '/dashboard';
+            }}
+            className="flex items-center gap-2 cursor-pointer hover:opacity-90"
+          >
+            <Image src="/logo.png" alt="Common Ground" width={28} height={28} className="rounded" />
+            <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
+              Common Ground
+            </span>
+          </a>
+          <span className="text-slate-300">|</span>
+          <a
+            href="/dashboard"
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.href = '/dashboard';
+            }}
+            className="text-sm text-slate-500 hover:text-slate-700 transition-colors cursor-pointer"
+          >
+            Dashboard
+          </a>
+          <a
+            href="/forum"
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.href = '/forum';
+            }}
+            className="text-sm text-slate-500 hover:text-slate-700 transition-colors cursor-pointer"
+          >
+            Forum
+          </a>
         </div>
 
         {/* Center: Phase Indicator */}

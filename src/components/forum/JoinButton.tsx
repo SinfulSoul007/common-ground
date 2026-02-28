@@ -2,9 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
-import { useUser } from '@/hooks/useUser';
-import { joinSessionAsResearcher } from '@/lib/supabase/sessions';
 import Button from '@/components/ui/Button';
 
 interface JoinButtonProps {
@@ -15,34 +12,32 @@ interface JoinButtonProps {
 
 export default function JoinButton({ sessionId, postId, status }: JoinButtonProps) {
   const router = useRouter();
-  const { user } = useUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleJoin = async () => {
-    if (!user) {
-      setError('Please log in to join.');
-      return;
-    }
-
     setLoading(true);
     setError('');
 
-    const supabase = createClient();
-    const success = await joinSessionAsResearcher(supabase, sessionId, user.id);
-    if (!success) {
-      setError('This project already has a researcher assigned.');
+    try {
+      const res = await fetch('/api/forum/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, postId }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || 'Failed to join project.');
+        setLoading(false);
+        return;
+      }
+
+      router.push(`/session/${sessionId}/phase2`);
+    } catch {
+      setError('Failed to join project.');
       setLoading(false);
-      return;
     }
-
-    // Update forum post status
-    await supabase
-      .from('forum_posts')
-      .update({ status: 'in_progress' })
-      .eq('id', postId);
-
-    router.push(`/session/${sessionId}/phase2`);
   };
 
   if (status !== 'open') {

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useSession } from '@/hooks/useSession';
+import { useSessionStore } from '@/store/sessionStore';
 import ViewToggle from '@/components/phase3/ViewToggle';
 import CharterDocument from '@/components/phase3/CharterDocument';
 import FeasibilityFlags from '@/components/phase3/FeasibilityFlags';
@@ -24,7 +25,26 @@ export default function Phase3Page() {
     npoSignedOff,
     researcherSignedOff,
     signOff,
+    initialized,
   } = useSession(sessionId);
+
+  // Poll session state so both parties see updates in realtime
+  useEffect(() => {
+    if (!initialized || !sessionId) return;
+    const hydrateFromServer = useSessionStore.getState().hydrateFromServer;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/session/${sessionId}/state`);
+        if (res.ok) {
+          const sessionState = await res.json();
+          if (sessionState?.sessionId) hydrateFromServer(sessionState);
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [initialized, sessionId]);
 
   const [activeView, setActiveView] = useState<Role>(role ?? 'npo');
   const [loading, setLoading] = useState(false);
@@ -71,8 +91,11 @@ export default function Phase3Page() {
         body: JSON.stringify({ problemStatement, chatTranscript, sidebar }),
       });
 
-      if (!charterRes.ok) throw new Error('Failed to generate charter');
-      const charterData = await charterRes.json();
+      const charterData = await charterRes.json().catch(() => ({}));
+      if (!charterRes.ok) {
+        const msg = (charterData as { error?: string })?.error || 'Failed to generate charter';
+        throw new Error(msg);
+      }
 
       const newCharter = {
         npoView: charterData.npoView,

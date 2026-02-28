@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import type { ForumPost } from '@/lib/types';
 import { useUser } from '@/hooks/useUser';
 import CommentList from '@/components/forum/CommentList';
@@ -19,38 +18,15 @@ export default function ForumPostPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-
-    async function loadPost() {
-      try {
-        const { data } = await supabase
-          .from('forum_posts')
-          .select('*, author:profiles(*)')
-          .eq('id', postId)
-          .single();
-
-        setPost(data as ForumPost | null);
-
-        // Check if user has upvoted (use profile from context)
-        if (profile) {
-          const { data: upvote } = await supabase
-            .from('forum_upvotes')
-            .select('post_id')
-            .eq('post_id', postId)
-            .eq('user_id', profile.id)
-            .single();
-
-          setHasUpvoted(!!upvote);
-        }
-      } catch (err) {
-        console.error('Failed to load post:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadPost();
-  }, [postId, profile]);
+    fetch(`/api/forum/posts/${postId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setPost(data.post ?? null);
+        setHasUpvoted(data.hasUpvoted ?? false);
+      })
+      .catch((err) => console.error('Failed to load post:', err))
+      .finally(() => setLoading(false));
+  }, [postId]);
 
   if (loading) {
     return (

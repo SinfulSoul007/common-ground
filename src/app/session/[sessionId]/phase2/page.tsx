@@ -42,6 +42,25 @@ export default function Phase2Page() {
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
   const [showAllComplete, setShowAllComplete] = useState(false);
   const hasGeneratedQuestions = useRef(false);
+  const synthesisTriggeredFor = useRef<Set<string>>(new Set());
+
+  // Poll session state so both parties see each other's answers (realtime can be delayed or unavailable)
+  useEffect(() => {
+    if (!initialized || !sessionId) return;
+    const hydrateFromServer = useSessionStore.getState().hydrateFromServer;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/session/${sessionId}/state`);
+        if (res.ok) {
+          const sessionState = await res.json();
+          if (sessionState?.sessionId) hydrateFromServer(sessionState);
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [initialized, sessionId]);
 
   // Current question derived from state
   const currentQuestion: ScopingQuestion | null =
@@ -196,8 +215,9 @@ export default function Phase2Page() {
           updateSidebar(mergedSidebar);
         }
 
-        // Add follow-up question if present
-        if (data.followUpQuestion) {
+        // Add follow-up question only if we're under the cap (5 questions total for now)
+        const currentCount = useSessionStore.getState().scopingQuestions.length;
+        if (data.followUpQuestion && currentCount < 5) {
           const followUp: ScopingQuestion = {
             id: uuidv4(),
             topic: data.followUpQuestion.topic,
@@ -218,6 +238,18 @@ export default function Phase2Page() {
     [setSynthesis, updateSidebar, addFollowUpQuestion]
   );
 
+  // When we receive state where both have answered but synthesis isn't done yet, run synthesis (e.g. after poll or realtime)
+  useEffect(() => {
+    if (!role || isSynthesizing) return;
+    for (const q of scopingQuestions) {
+      if (q.npoAnswer && q.researcherAnswer && !q.aiSynthesis && !synthesisTriggeredFor.current.has(q.id)) {
+        synthesisTriggeredFor.current.add(q.id);
+        triggerSynthesis(q);
+        break; // one at a time
+      }
+    }
+  }, [scopingQuestions, role, isSynthesizing, triggerSynthesis]);
+
   // Handle submitting an answer
   const handleSubmitAnswer = useCallback(async () => {
     if (!role || !currentQuestion || !myAnswer.trim()) return;
@@ -236,6 +268,7 @@ export default function Phase2Page() {
     );
 
     if (updatedQuestion && updatedQuestion.npoAnswer && updatedQuestion.researcherAnswer) {
+      synthesisTriggeredFor.current.add(updatedQuestion.id);
       await triggerSynthesis(updatedQuestion);
     }
 
@@ -284,11 +317,14 @@ export default function Phase2Page() {
     role &&
     (role === 'npo' ? currentQuestion.npoAnswer : currentQuestion.researcherAnswer);
 
-  // Loading state
+  // Loading state — show spinner only when we have a chance to load (profile exists for useSession)
   if (!initialized || !role) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-4">
         <div className="animate-spin h-8 w-8 border-4 border-teal-600 border-t-transparent rounded-full" />
+        <p className="text-sm text-slate-500">
+          Loading negotiation session...
+        </p>
       </div>
     );
   }

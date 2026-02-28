@@ -184,10 +184,11 @@ You will receive:
 2. The full chat transcript from Phase 2
 3. The agreed requirements, constraints, and open questions from the sidebar
 
-Generate TWO complete project charter documents in valid JSON (no markdown fences):
+Generate TWO complete project charter documents as a single JSON object (no markdown code fences).
+CRITICAL: In JSON, string values must escape newlines as \\n and double quotes as \\". Do not put literal line breaks inside quotes.
 
 {
-  "npoView": "FULL MARKDOWN DOCUMENT — written for a non-technical NPO representative. Include:
+  "npoView": "FULL MARKDOWN DOCUMENT — written for a non-technical NPO representative. Use \\n for line breaks. Include:
     ## What We'll Build
     (Plain description of what the tool/solution will do, in everyday language)
     ## What We Need From You
@@ -198,10 +199,9 @@ Generate TWO complete project charter documents in valid JSON (no markdown fence
     (Concrete, measurable outcomes the NPO cares about)
     ## Your Responsibilities
     (Clear list of what the NPO must provide or do)
-    ## What Happens Next
-    (Immediate next steps)",
+    \\n## What Happens Next\\n    (Immediate next steps)",
 
-  "researcherView": "FULL MARKDOWN DOCUMENT — written for a technical AI researcher. Include:
+  "researcherView": "FULL MARKDOWN DOCUMENT — written for a technical AI researcher. Use \\n for line breaks. Include:
     ## Technical Problem Specification
     (Formal problem statement with technical framing)
     ## Data Requirements
@@ -214,12 +214,32 @@ Generate TWO complete project charter documents in valid JSON (no markdown fence
     (Effort estimate, complexity rating, confidence level)
     ## Implementation Timeline
     (Sprint-based with technical milestones)
-    ## Dependencies & Prerequisites
-    (Libraries, infrastructure, access requirements)"
+    \\n## Dependencies & Prerequisites\\n    (Libraries, infrastructure, access requirements)"
 }
 
 Both views must be consistent — they describe the SAME project, just rendered for different audiences.
-Use specific details from the conversation, not generic filler. If something was not discussed, flag it as TBD.`;
+Use specific details from the conversation, not generic filler. If something was not discussed, flag it as TBD.
+Remember: the entire JSON must be valid and parseable — use \\n for newlines inside strings, not literal line breaks.`;
+}
+
+/** System prompt for generating ONLY the NPO view — keep it short for fast generation. */
+export function generateCharterNpoOnlySystemPrompt(): string {
+  return `You are the document generator for Common Ground. Generate a SHORT NPO-facing project charter.
+
+Be concise: 1-2 sentences per section. Use \\n for line breaks. Output valid JSON with one key:
+{ "npoView": "## What We'll Build\\n[1-2 sentences]\\n\\n## What We Need From You\\n[1-2 sentences]\\n\\n## Timeline\\n[1-2 sentences]\\n\\n## What Success Looks Like\\n[1-2 sentences]\\n\\n## Next Steps\\n[1-2 sentences]" }
+
+Use details from the conversation. Escape newlines as \\n and quotes as \\" in the string.`;
+}
+
+/** System prompt for generating ONLY the researcher view — keep it short for fast generation. */
+export function generateCharterResearcherOnlySystemPrompt(): string {
+  return `You are the document generator for Common Ground. Generate a SHORT technical researcher-facing project charter.
+
+Output ONLY valid JSON. The object must have exactly one key: "researcherView" (camelCase). Be concise: 1-2 sentences per section. Use \\n for line breaks. Example shape:
+{ "researcherView": "## Technical Problem\\n[1-2 sentences]\\n\\n## Data Requirements\\n[1-2 sentences]\\n\\n## Proposed Approach\\n[1-2 sentences]\\n\\n## Risks & Open Questions\\n[1-2 sentences]\\n\\n## Feasibility\\n[1-2 sentences]\\n\\n## Next Steps\\n[1-2 sentences]" }
+
+Use details from the conversation. Escape newlines as \\n and quotes as \\" inside the string.`;
 }
 
 export function generateCharterUserMessage(
@@ -304,32 +324,31 @@ ${sidebar.openQuestions.map((q) => `- ${q}`).join('\n')}`;
 // ============ PHASE 2 STRUCTURED Q&A PROMPTS ============
 
 export function generateScopingQuestionsSystemPrompt(): string {
-  return `You are the AI facilitator for Common Ground. Generate 5-7 structured scoping questions to help an NPO and an AI researcher align on project requirements.
+  return `You are the AI facilitator for Common Ground. Generate exactly 5 structured scoping questions so an NPO and an AI researcher can align on project requirements.
 
-Each question has a shared TOPIC but TWO role-specific versions:
-- The NPO version uses plain, everyday language focused on their operations, needs, and organizational reality.
-- The Researcher version uses technical framing focused on data, feasibility, architecture, and methodology.
+Each question has a shared TOPIC but TWO role-specific versions. They must be appropriate for that role:
 
-Both versions address the same underlying concern from each party's perspective.
+NPO questions (npoQuestion / npoContext):
+- Use plain, everyday language. The NPO is a non-technical stakeholder (program manager, operations, impact lead).
+- Ask about: their goals, beneficiaries, current processes, constraints (time, budget, staff), what success looks like to them, who will use the solution, and what they can provide (e.g. access to people, documents, feedback).
+- Do NOT ask the NPO about: technical architecture, data formats, APIs, models, or methodology. Do NOT use jargon.
 
-You will receive a problem statement (plain English + technical interpretation). Cover these categories:
-1. Data availability and format
-2. Expected outcomes and success metrics
-3. Timeline and resource constraints
-4. Technical requirements and preferences
-5. Ethical considerations and data privacy
-6. Integration with existing workflows
-7. Stakeholder needs
+Researcher questions (researcherQuestion / researcherContext):
+- Use clear technical framing. The researcher needs to assess feasibility and design the approach.
+- Ask about: data (sources, format, volume, access), evaluation metrics, constraints (latency, scale, privacy), integration points, and any existing systems or tools.
+- Do NOT ask the researcher about: day-to-day operations, internal politics, or non-technical stakeholder preferences unless it directly affects data or requirements.
 
-Output valid JSON (no markdown fences):
+Both versions must address the SAME underlying topic so that answers can be synthesized. Order questions from most fundamental to most detailed.
+
+Output valid JSON (no markdown fences). Exactly 5 questions:
 {
   "questions": [
     {
       "topic": "Short topic label (e.g. 'Data Availability')",
-      "npoQuestion": "Plain-language question for the NPO representative",
+      "npoQuestion": "Plain-language question the NPO can answer from their experience",
       "npoContext": "Why this matters from the NPO's perspective",
-      "researcherQuestion": "Technically-framed question for the AI researcher",
-      "researcherContext": "Why this matters from the researcher's perspective"
+      "researcherQuestion": "Technical question the researcher can answer from a feasibility/design perspective",
+      "researcherContext": "Why this matters for the researcher's perspective"
     }
   ]
 }
@@ -338,12 +357,10 @@ Example:
 {
   "topic": "Data Availability",
   "npoQuestion": "What information about your beneficiaries or operations does your organization currently track or collect?",
-  "npoContext": "Understanding what data you already have helps us figure out what's possible without requiring extra effort from your team.",
+  "npoContext": "Understanding what you already have helps us see what's possible without extra effort from your team.",
   "researcherQuestion": "What are the expected data modalities, volumes, and access patterns? Is the data structured (DB/CSV) or unstructured (documents, emails)?",
-  "researcherContext": "This determines the data pipeline architecture, preprocessing requirements, and ML feasibility."
-}
-
-Questions should be ordered from most fundamental to most detailed.`;
+  "researcherContext": "This determines data pipeline architecture, preprocessing, and ML feasibility."
+}`;
 }
 
 export function generateScopingQuestionsUserMessage(problemStatement: ProblemStatement): string {
@@ -371,22 +388,13 @@ Output valid JSON (no markdown fences):
   "followUpQuestion": null
 }
 
-For the followUpQuestion field, if a critical follow-up is needed, provide a role-specific object:
-{
-  "topic": "Short topic label",
-  "npoQuestion": "Plain-language follow-up for the NPO",
-  "npoContext": "Why this matters for NPO",
-  "researcherQuestion": "Technical follow-up for the researcher",
-  "researcherContext": "Why this matters for researcher"
-}
-Otherwise, set it to null.
+Set followUpQuestion to null. Do not add new questions; the flow uses a fixed set of 5 questions.
 
 Rules:
 - The synthesis should be fair and balanced, reflecting both perspectives
 - Acknowledge that each party was asked from their own perspective when interpreting answers
 - Extract concrete requirements and constraints that both parties seem to agree on
-- If answers contradict, note the disagreement and suggest it as an open question
-- Only generate a follow-up question if there is a genuine critical gap — do not generate one for every answer`;
+- If answers contradict, note the disagreement and suggest it as an open question`;
 }
 
 export function synthesizeAnswersUserMessage(

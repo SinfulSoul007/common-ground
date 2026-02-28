@@ -6,6 +6,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { v4 as uuidv4 } from 'uuid';
 import { useSession } from '@/hooks/useSession';
+import { useSessionStore } from '@/store/sessionStore';
 import TagCloud from '@/components/phase1/TagCloud';
 import CustomTagInput from '@/components/phase1/CustomTagInput';
 import WaitingRoom from '@/components/phase1/WaitingRoom';
@@ -31,6 +32,24 @@ export default function Phase1Page() {
     setProblemStatement,
     completePhase1,
   } = store;
+
+  // Poll session state so both parties see updates in realtime
+  useEffect(() => {
+    if (!initialized || !sessionId) return;
+    const hydrateFromServer = useSessionStore.getState().hydrateFromServer;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/session/${sessionId}/state`);
+        if (res.ok) {
+          const sessionState = await res.json();
+          if (sessionState?.sessionId) hydrateFromServer(sessionState);
+        }
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [initialized, sessionId]);
 
   // Local state
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -263,22 +282,24 @@ export default function Phase1Page() {
           {/* Main area (70%) */}
           <main className="flex w-[70%] flex-col gap-4 overflow-y-auto p-6 custom-scrollbar">
             {/* Combine bar */}
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
               {selectedTagIds.length === 0 ? (
-                <p className="text-sm text-slate-400 flex-1">Click tags below to select them for combining...</p>
+                <p className="text-sm text-slate-400 flex-1 min-w-0">Click tags below to select them for combining...</p>
               ) : (
-                <div className="flex flex-wrap gap-2 flex-1">
+                <div className="flex flex-wrap gap-2 flex-1 min-w-0">
                   {selectedTagIds.map((id) => {
                     const tag = tags.find((t) => t.id === id);
                     return tag ? (
                       <span
                         key={id}
-                        className="rounded-full bg-teal-100 px-3 py-1.5 text-sm font-medium text-teal-800 flex items-center gap-1"
+                        className="rounded-full bg-teal-100 px-3 py-1.5 text-sm font-medium text-teal-800 inline-flex items-center gap-1"
                       >
                         {tag.label}
                         <button
+                          type="button"
                           onClick={(e) => { e.stopPropagation(); setSelectedTagIds((prev) => prev.filter((i) => i !== id)); }}
-                          className="ml-1 text-teal-600 hover:text-teal-900"
+                          className="ml-0.5 p-0.5 rounded text-teal-600 hover:text-teal-900 hover:bg-teal-200/60 transition-colors"
+                          aria-label={`Remove ${tag.label} from selection`}
                         >
                           &times;
                         </button>
@@ -287,22 +308,25 @@ export default function Phase1Page() {
                   })}
                 </div>
               )}
-              <Button
-                onClick={handleCombineSelected}
-                disabled={selectedTagIds.length < 2 || isCombining}
-                loading={isCombining}
-                size="sm"
-              >
-                {isCombining ? 'Combining...' : `Combine${selectedTagIds.length >= 2 ? ` (${selectedTagIds.length})` : ''}`}
-              </Button>
-              {selectedTagIds.length > 0 && (
-                <button
-                  onClick={() => setSelectedTagIds([])}
-                  className="text-xs text-slate-400 hover:text-slate-600"
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  onClick={handleCombineSelected}
+                  disabled={selectedTagIds.length < 2 || isCombining}
+                  loading={isCombining}
+                  size="sm"
                 >
-                  Clear
-                </button>
-              )}
+                  {isCombining ? 'Combining...' : `Combine${selectedTagIds.length >= 2 ? ` (${selectedTagIds.length})` : ''}`}
+                </Button>
+                {selectedTagIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTagIds([])}
+                    className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1.5 rounded hover:bg-slate-100 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Tag Cloud */}
@@ -415,27 +439,29 @@ export default function Phase1Page() {
             <span className="ml-auto text-xs text-slate-400">{checkedTagIds.size} selected</span>
           </div>
 
-          <div className="max-h-60 space-y-2 overflow-y-auto custom-scrollbar">
-            {nonSeedTags.map((tag) => (
-              <label
-                key={tag.id}
-                className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-slate-50"
-              >
-                <input
-                  type="checkbox"
-                  checked={checkedTagIds.has(tag.id)}
-                  onChange={() => toggleCheckedTag(tag.id)}
-                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                />
-                <span className="text-sm text-slate-700">{tag.label}</span>
-                {tag.parents && (
-                  <span className="ml-auto text-xs text-slate-400">combined</span>
-                )}
-                {tag.isCustom && (
-                  <span className="ml-auto text-xs text-slate-400">custom</span>
-                )}
-              </label>
-            ))}
+          <div className="max-h-64 overflow-y-auto custom-scrollbar rounded-lg border border-slate-200 bg-slate-50/50">
+            <div className="p-2 space-y-1">
+              {nonSeedTags.map((tag) => (
+                <label
+                  key={tag.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-slate-100 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:ring-offset-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checkedTagIds.has(tag.id)}
+                    onChange={() => toggleCheckedTag(tag.id)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-teal-600 focus:ring-teal-500 focus:ring-offset-0"
+                  />
+                  <span className="text-sm text-slate-700 flex-1 min-w-0">{tag.label}</span>
+                  {tag.parents && (
+                    <span className="shrink-0 text-xs text-slate-400">combined</span>
+                  )}
+                  {tag.isCustom && (
+                    <span className="shrink-0 text-xs text-slate-400">custom</span>
+                  )}
+                </label>
+              ))}
+            </div>
           </div>
 
           {nonSeedTags.length === 0 && (

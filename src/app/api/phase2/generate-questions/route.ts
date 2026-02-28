@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
       }>;
     };
 
-    return NextResponse.json(parsed);
+    // Cap at 5 questions
+    const questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0, 5) : [];
+    return NextResponse.json({ questions });
   } catch (error) {
     console.error('Error generating scoping questions:', error);
     return NextResponse.json(

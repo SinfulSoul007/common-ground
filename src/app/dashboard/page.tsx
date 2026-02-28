@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/hooks/useUser';
@@ -15,6 +16,7 @@ interface SessionRow {
   published_to_forum: boolean;
   created_at: string;
   researcher_user_id: string | null;
+  problem_statement?: { plainEnglish?: string } | null;
 }
 
 export default function DashboardPage() {
@@ -23,30 +25,23 @@ export default function DashboardPage() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [unpublishingId, setUnpublishingId] = useState<string | null>(null);
 
+  // Initial load and polling so session list stays in sync with DB (realtime)
   useEffect(() => {
     if (userLoading || !user) return;
 
-    const supabase = createClient();
+    const fetchSessions = () => {
+      fetch('/api/sessions')
+        .then((res) => res.json())
+        .then((data) => setSessions(Array.isArray(data) ? data : []))
+        .catch((err) => console.error('Failed to load sessions:', err))
+        .finally(() => setLoading(false));
+    };
 
-    async function loadSessions() {
-      try {
-        const { data, error } = await supabase
-          .from('sessions')
-          .select('id, current_phase, phase1_complete, published_to_forum, created_at, researcher_user_id')
-          .or(`npo_user_id.eq.${user!.id},researcher_user_id.eq.${user!.id}`)
-          .order('created_at', { ascending: false });
-
-        if (error) console.error('Session query error:', error);
-        setSessions((data as SessionRow[]) || []);
-      } catch (err) {
-        console.error('Failed to load sessions:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadSessions();
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 3000);
+    return () => clearInterval(interval);
   }, [user, userLoading]);
 
   const handleCreateSession = async () => {
@@ -54,7 +49,6 @@ export default function DashboardPage() {
     setCreating(true);
 
     try {
-      const supabase = createClient();
       const { SEED_TAGS } = await import('@/lib/constants');
       const { v4: uuidv4 } = await import('uuid');
 
@@ -64,12 +58,40 @@ export default function DashboardPage() {
         isSeed: true,
       }));
 
-      const { createSession } = await import('@/lib/supabase/sessions');
-      const sessionId = await createSession(supabase, user.id, tags);
-      router.push(`/session/${sessionId}/phase1`);
+      const res = await fetch('/api/session/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      router.push(`/session/${data.sessionId}/phase1`);
     } catch (err) {
       console.error('Failed to create session:', err);
       setCreating(false);
+    }
+  };
+
+  const handleUnpublish = async (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setUnpublishingId(sessionId);
+    try {
+      const res = await fetch('/api/forum/unpublish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove from forum');
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, published_to_forum: false } : s))
+      );
+    } catch (err) {
+      console.error('Unpublish error:', err);
+      alert(err instanceof Error ? err.message : 'Failed to remove from forum');
+    } finally {
+      setUnpublishingId(null);
     }
   };
 
@@ -84,9 +106,12 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-surface">
         {/* Skeleton header */}
         <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between">
-          <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
-            Common Ground
-          </span>
+          <div className="flex items-center gap-2">
+            <Image src="/logo.png" alt="Common Ground" width={28} height={28} className="rounded" />
+            <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
+              Common Ground
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             <div className="h-4 w-16 bg-slate-100 rounded animate-pulse" />
             <div className="h-6 w-20 bg-slate-100 rounded-full animate-pulse" />
@@ -127,9 +152,12 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-surface">
       <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between">
-        <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
-          Common Ground
-        </span>
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <Image src="/logo.png" alt="Common Ground" width={28} height={28} className="rounded" />
+          <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
+            Common Ground
+          </span>
+        </Link>
         <div className="flex items-center gap-3">
           <Link href="/forum" className="text-sm text-slate-600 hover:text-primary transition-colors">
             Forum
@@ -144,7 +172,7 @@ export default function DashboardPage() {
             onClick={async () => {
               const supabase = createClient();
               await supabase.auth.signOut();
-              router.push('/');
+              window.location.href = '/';
             }}
             className="text-sm text-slate-400 hover:text-slate-600 transition-colors"
           >
@@ -199,41 +227,69 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {sessions.map((session) => (
-              <Link
-                key={session.id}
-                href={`/session/${session.id}/phase${session.current_phase}`}
-                className="block bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-sm font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded">
-                      {session.id}
-                    </span>
-                    <span className="text-sm text-slate-500">
-                      Phase {session.current_phase}
-                    </span>
-                    {session.published_to_forum && (
-                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                        Published
-                      </span>
+            {sessions.map((session) => {
+              const targetPhase = session.phase1_complete ? Math.max(2, session.current_phase) : session.current_phase;
+              const problemTitle = session.problem_statement?.plainEnglish;
+              const titleDisplay = problemTitle
+                ? (problemTitle.length > 55 ? problemTitle.slice(0, 55).trim() + '…' : problemTitle)
+                : null;
+              const isUnpublishing = unpublishingId === session.id;
+              return (
+                <div
+                  key={session.id}
+                  className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-shadow flex items-start justify-between gap-3"
+                >
+                  <Link
+                    href={`/session/${session.id}/phase${targetPhase}`}
+                    className="flex-1 min-w-0"
+                  >
+                    {titleDisplay && (
+                      <p className="text-sm font-medium text-slate-800 mb-2 line-clamp-2" title={problemTitle ?? undefined}>
+                        {titleDisplay}
+                      </p>
                     )}
-                    {session.researcher_user_id ? (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        Researcher joined
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="font-mono text-sm font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded">
+                          {session.id}
+                        </span>
+                        <span className="text-sm text-slate-500">
+                          Phase {targetPhase}
+                        </span>
+                        {session.published_to_forum && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                            Published
+                          </span>
+                        )}
+                        {session.researcher_user_id ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                            Researcher joined
+                          </span>
+                        ) : (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                            Waiting for researcher
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-slate-400 shrink-0">
+                        {new Date(session.created_at).toLocaleDateString()}
                       </span>
-                    ) : (
-                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                        Waiting for researcher
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-slate-400">
-                    {new Date(session.created_at).toLocaleDateString()}
-                  </span>
+                    </div>
+                  </Link>
+                  {profile.role === 'npo' && session.published_to_forum && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleUnpublish(e, session.id)}
+                      disabled={isUnpublishing}
+                      className="shrink-0 text-xs text-slate-500 hover:text-red-600 px-2 py-1.5 rounded border border-slate-200 hover:border-red-200 transition-colors disabled:opacity-50"
+                      title="Remove this project from the forum"
+                    >
+                      {isUnpublishing ? 'Removing…' : 'Remove from forum'}
+                    </button>
+                  )}
                 </div>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

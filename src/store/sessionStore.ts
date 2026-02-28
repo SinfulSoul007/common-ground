@@ -2,8 +2,6 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionState, Tag, ProblemStatement, ChatMessage, SidebarState, Charter, Role, Phase, ScopingQuestion } from '@/lib/types';
 import { SEED_TAGS } from '@/lib/constants';
-import { createClient } from '@/lib/supabase/client';
-import { updateSession as updateSessionDB, createSession as createSessionDB, joinSessionAsResearcher, fetchSession as fetchSessionDB } from '@/lib/supabase/sessions';
 
 function createInitialTags(): Tag[] {
   return SEED_TAGS.map((label) => ({
@@ -13,36 +11,13 @@ function createInitialTags(): Tag[] {
   }));
 }
 
-function createDefaultSession(sessionId: string): SessionState {
-  return {
-    sessionId,
-    currentPhase: 1,
-    npoJoined: false,
-    researcherJoined: false,
-    tags: createInitialTags(),
-    combinationHistory: [],
-    problemStatement: null,
-    phase1Complete: false,
-    chatMessages: [],
-    sidebar: { agreedRequirements: [], constraints: [], openQuestions: [] },
-    phase2Complete: false,
-    scopingQuestions: [],
-    currentQuestionIndex: 0,
-    phase2BothAgreed: false,
-    npoAgreedPhase2: false,
-    researcherAgreedPhase2: false,
-    charter: null,
-    npoSignedOff: false,
-    researcherSignedOff: false,
-  };
-}
-
-/** Persist a partial state update to Supabase (fire-and-forget) */
-function persistToSupabase(sessionId: string, patch: Partial<SessionState>) {
-  const supabase = createClient();
-  updateSessionDB(supabase, sessionId, patch).catch((err) =>
-    console.warn('Failed to persist to Supabase:', err)
-  );
+/** Persist a partial state update via API route (fire-and-forget) */
+function persistToServer(sessionId: string, patch: Partial<SessionState>) {
+  fetch(`/api/session/${sessionId}/state`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).catch((err) => console.warn('Failed to persist session:', err));
 }
 
 interface SessionStore extends SessionState {
@@ -50,9 +25,8 @@ interface SessionStore extends SessionState {
   initialized: boolean;
 
   // Session management
-  createSession: (role: Role, userId: string) => Promise<string>;
-  joinSession: (sessionId: string, role: Role, userId: string) => Promise<boolean>;
   loadSession: (sessionId: string, role: Role) => Promise<void>;
+  resetForSession: (sessionId: string) => void;
 
   // Phase 1
   addTag: (tag: Tag) => void;
@@ -81,7 +55,7 @@ interface SessionStore extends SessionState {
   setPhase: (phase: Phase) => void;
 
   // Sync
-  hydrateFromSupabase: (state: SessionState) => void;
+  hydrateFromServer: (state: SessionState) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -108,46 +82,65 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   role: null,
   initialized: false,
 
-  createSession: async (role: Role, userId: string) => {
-    const tags = createInitialTags();
-    const supabase = createClient();
-    const sessionId = await createSessionDB(supabase, userId, tags);
-    const session = { ...createDefaultSession(sessionId), tags, npoJoined: true };
-    set({ ...session, role, initialized: true });
-    return sessionId;
-  },
-
-  joinSession: async (sessionId: string, role: Role, userId: string) => {
-    const supabase = createClient();
-    const success = await joinSessionAsResearcher(supabase, sessionId, userId);
-    if (!success) return false;
-
-    const sessionState = await fetchSessionDB(supabase, sessionId);
-    if (!sessionState) return false;
-
-    set({ ...sessionState, role, initialized: true });
-    return true;
-  },
-
   loadSession: async (sessionId: string, role: Role) => {
-    const supabase = createClient();
-    const sessionState = await fetchSessionDB(supabase, sessionId);
-    if (sessionState) {
-      set({ ...sessionState, role, initialized: true });
+    try {
+      const res = await fetch(`/api/session/${sessionId}/state`);
+      if (!res.ok) {
+        console.error('Failed to load session:', res.status);
+        set({ initialized: false, role: null });
+        return;
+      }
+      const sessionState = await res.json();
+      if (sessionState && sessionState.sessionId) {
+        set({ ...sessionState, chatMessages: [], role, initialized: true });
+      } else {
+        set({ initialized: false, role: null });
+      }
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      set({ initialized: false, role: null });
     }
+  },
+
+  resetForSession: (sessionId: string) => {
+    const state = get();
+    if (state.sessionId === sessionId) return;
+    set({
+      sessionId: '',
+      currentPhase: 1,
+      npoJoined: false,
+      researcherJoined: false,
+      tags: [],
+      combinationHistory: [],
+      problemStatement: null,
+      phase1Complete: false,
+      chatMessages: [],
+      sidebar: { agreedRequirements: [], constraints: [], openQuestions: [] },
+      phase2Complete: false,
+      scopingQuestions: [],
+      currentQuestionIndex: 0,
+      phase2BothAgreed: false,
+      npoAgreedPhase2: false,
+      researcherAgreedPhase2: false,
+      charter: null,
+      npoSignedOff: false,
+      researcherSignedOff: false,
+      role: null,
+      initialized: false,
+    });
   },
 
   addTag: (tag: Tag) => {
     const state = get();
     const newTags = [...state.tags, tag];
-    persistToSupabase(state.sessionId, { tags: newTags });
+    persistToServer(state.sessionId, { tags: newTags });
     set({ tags: newTags });
   },
 
   removeTag: (tagId: string) => {
     const state = get();
     const newTags = state.tags.filter((t) => t.id !== tagId);
-    persistToSupabase(state.sessionId, { tags: newTags });
+    persistToServer(state.sessionId, { tags: newTags });
     set({ tags: newTags });
   },
 
@@ -155,19 +148,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const state = get();
     const newTags = [...state.tags, resultTag];
     const newHistory = [...state.combinationHistory, { parent1Id, parent2Id, resultId: resultTag.id }];
-    persistToSupabase(state.sessionId, { tags: newTags, combinationHistory: newHistory });
+    persistToServer(state.sessionId, { tags: newTags, combinationHistory: newHistory });
     set({ tags: newTags, combinationHistory: newHistory });
   },
 
   setProblemStatement: (ps: ProblemStatement) => {
     const state = get();
-    persistToSupabase(state.sessionId, { problemStatement: ps });
+    persistToServer(state.sessionId, { problemStatement: ps });
     set({ problemStatement: ps });
   },
 
   completePhase1: () => {
     const state = get();
-    persistToSupabase(state.sessionId, { phase1Complete: true, currentPhase: 2 });
+    persistToServer(state.sessionId, { phase1Complete: true, currentPhase: 2 });
     set({ phase1Complete: true, currentPhase: 2 });
   },
 
@@ -178,14 +171,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   updateSidebar: (sidebar: SidebarState) => {
     const state = get();
-    persistToSupabase(state.sessionId, { sidebar });
+    persistToServer(state.sessionId, { sidebar });
     set({ sidebar });
   },
 
   completePhase2: () => {
     const state = get();
     if (!state.npoAgreedPhase2 || !state.researcherAgreedPhase2) return;
-    persistToSupabase(state.sessionId, { phase2Complete: true, phase2BothAgreed: true, currentPhase: 3 });
+    persistToServer(state.sessionId, { phase2Complete: true, phase2BothAgreed: true, currentPhase: 3 });
     set({ phase2Complete: true, phase2BothAgreed: true, currentPhase: 3 });
   },
 
@@ -195,7 +188,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...q,
       status: (i === 0 ? 'active' : 'pending') as ScopingQuestion['status'],
     }));
-    persistToSupabase(state.sessionId, { scopingQuestions: withStatus, currentQuestionIndex: 0 });
+    persistToServer(state.sessionId, { scopingQuestions: withStatus, currentQuestionIndex: 0 });
     set({ scopingQuestions: withStatus, currentQuestionIndex: 0 });
   },
 
@@ -208,7 +201,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ...(role === 'npo' ? { npoAnswer: answer } : { researcherAnswer: answer }),
       };
     });
-    persistToSupabase(state.sessionId, { scopingQuestions: newQuestions });
+    persistToServer(state.sessionId, { scopingQuestions: newQuestions });
     set({ scopingQuestions: newQuestions });
   },
 
@@ -218,7 +211,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (q.id !== questionId) return q;
       return { ...q, aiSynthesis: synthesis, status: 'answered' as const };
     });
-    persistToSupabase(state.sessionId, { scopingQuestions: newQuestions });
+    persistToServer(state.sessionId, { scopingQuestions: newQuestions });
     set({ scopingQuestions: newQuestions });
   },
 
@@ -230,14 +223,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (i === nextIndex) return { ...q, status: 'active' as const };
       return q;
     });
-    persistToSupabase(state.sessionId, { scopingQuestions: newQuestions, currentQuestionIndex: nextIndex });
+    persistToServer(state.sessionId, { scopingQuestions: newQuestions, currentQuestionIndex: nextIndex });
     set({ scopingQuestions: newQuestions, currentQuestionIndex: nextIndex });
   },
 
   addFollowUpQuestion: (question: ScopingQuestion) => {
     const state = get();
     const newQuestions = [...state.scopingQuestions, question];
-    persistToSupabase(state.sessionId, { scopingQuestions: newQuestions });
+    persistToServer(state.sessionId, { scopingQuestions: newQuestions });
     set({ scopingQuestions: newQuestions });
   },
 
@@ -253,13 +246,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       updates.phase2BothAgreed = true;
     }
 
-    persistToSupabase(state.sessionId, updates);
+    persistToServer(state.sessionId, updates);
     set(updates);
   },
 
   setCharter: (charter: Charter) => {
     const state = get();
-    persistToSupabase(state.sessionId, { charter });
+    persistToServer(state.sessionId, { charter });
     set({ charter });
   },
 
@@ -268,24 +261,24 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const updates = role === 'npo'
       ? { npoSignedOff: true }
       : { researcherSignedOff: true };
-    persistToSupabase(state.sessionId, updates);
+    persistToServer(state.sessionId, updates);
     set(updates);
   },
 
   advancePhase: () => {
     const state = get();
     const nextPhase = Math.min(state.currentPhase + 1, 3) as Phase;
-    persistToSupabase(state.sessionId, { currentPhase: nextPhase });
+    persistToServer(state.sessionId, { currentPhase: nextPhase });
     set({ currentPhase: nextPhase });
   },
 
   setPhase: (phase: Phase) => {
     const state = get();
-    persistToSupabase(state.sessionId, { currentPhase: phase });
+    persistToServer(state.sessionId, { currentPhase: phase });
     set({ currentPhase: phase });
   },
 
-  hydrateFromSupabase: (sessionState: SessionState) => {
+  hydrateFromServer: (sessionState: SessionState) => {
     const currentRole = get().role;
     const currentMessages = get().chatMessages;
     set({ ...sessionState, chatMessages: currentMessages, role: currentRole, initialized: true });

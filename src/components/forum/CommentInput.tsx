@@ -1,34 +1,41 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useUser } from '@/hooks/useUser';
 import Button from '@/components/ui/Button';
+import type { ForumComment } from '@/lib/types';
 
 interface CommentInputProps {
   postId: string;
+  onCommentAdded?: (comment: ForumComment) => void;
 }
 
-export default function CommentInput({ postId }: CommentInputProps) {
-  const { user } = useUser();
+export default function CommentInput({ postId, onCommentAdded }: CommentInputProps) {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() || !user) return;
+    if (!content.trim()) return;
 
     setLoading(true);
-    const supabase = createClient();
 
-    await supabase.from('forum_comments').insert({
-      post_id: postId,
-      author_id: user.id,
-      content: content.trim(),
-    });
+    try {
+      const res = await fetch('/api/forum/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId, content: content.trim() }),
+      });
 
-    setContent('');
-    setLoading(false);
+      if (res.ok) {
+        const comment = await res.json();
+        setContent('');
+        onCommentAdded?.(comment);
+      }
+    } catch (err) {
+      console.error('Failed to post comment:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

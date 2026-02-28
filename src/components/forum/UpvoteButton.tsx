@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useUser } from '@/hooks/useUser';
 
 interface UpvoteButtonProps {
   postId: string;
@@ -11,41 +9,34 @@ interface UpvoteButtonProps {
 }
 
 export default function UpvoteButton({ postId, count, hasUpvoted: initialUpvoted }: UpvoteButtonProps) {
-  const { user } = useUser();
   const [upvoted, setUpvoted] = useState(initialUpvoted);
   const [displayCount, setDisplayCount] = useState(count);
   const [loading, setLoading] = useState(false);
 
   const handleToggle = async () => {
-    if (loading || !user) return;
+    if (loading) return;
     setLoading(true);
 
-    const supabase = createClient();
-
     // Optimistic update
-    setUpvoted(!upvoted);
-    setDisplayCount((prev) => upvoted ? prev - 1 : prev + 1);
+    const wasUpvoted = upvoted;
+    setUpvoted(!wasUpvoted);
+    setDisplayCount((prev) => wasUpvoted ? prev - 1 : prev + 1);
 
-    if (upvoted) {
-      const { error } = await supabase
-        .from('forum_upvotes')
-        .delete()
-        .eq('post_id', postId)
-        .eq('user_id', user.id);
+    try {
+      const res = await fetch('/api/forum/upvote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId, action: wasUpvoted ? 'remove' : 'add' }),
+      });
 
-      if (error) {
-        setUpvoted(true);
-        setDisplayCount((prev) => prev + 1);
+      if (!res.ok) {
+        // Revert optimistic update
+        setUpvoted(wasUpvoted);
+        setDisplayCount((prev) => wasUpvoted ? prev + 1 : prev - 1);
       }
-    } else {
-      const { error } = await supabase
-        .from('forum_upvotes')
-        .insert({ post_id: postId, user_id: user.id });
-
-      if (error) {
-        setUpvoted(false);
-        setDisplayCount((prev) => prev - 1);
-      }
+    } catch {
+      setUpvoted(wasUpvoted);
+      setDisplayCount((prev) => wasUpvoted ? prev + 1 : prev - 1);
     }
 
     setLoading(false);

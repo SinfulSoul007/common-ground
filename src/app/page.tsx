@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useUser } from '@/hooks/useUser';
 
@@ -33,6 +34,9 @@ export default function LandingPage() {
         transition={{ duration: 0.6 }}
         className="text-center mb-12"
       >
+        <div className="flex justify-center mb-4">
+          <Image src="/logo.png" alt="" width={80} height={80} className="rounded-xl" />
+        </div>
         <h1 className="text-5xl sm:text-6xl font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent mb-4">
           Common Ground
         </h1>

@@ -45,7 +45,9 @@ export default function Tag({ tag, isSelected, onClick, onRemove }: TagProps) {
     colorClasses = 'bg-slate-100 text-slate-700';
   }
 
-  const selectedClasses = isSelected ? 'ring-2 ring-primary' : '';
+  const selectedClasses = isSelected
+    ? 'ring-2 ring-primary ring-offset-2 shadow-md bg-teal-50/80 border-teal-300'
+    : '';
 
   return (
     <motion.div
@@ -54,7 +56,7 @@ export default function Tag({ tag, isSelected, onClick, onRemove }: TagProps) {
       animate={{ scale: 1, opacity: isDragging ? 0.5 : 1 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       whileHover={{ scale: 1.05 }}
-      className={`rounded-full px-4 py-2 cursor-pointer select-none inline-flex items-center gap-1 text-sm transition-shadow ${colorClasses} ${selectedClasses}`}
+      className={`rounded-full px-4 py-2.5 min-h-[2.25rem] cursor-pointer select-none inline-flex items-center gap-1 text-sm transition-all ${colorClasses} ${selectedClasses}`}
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}

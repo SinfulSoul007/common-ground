@@ -28,7 +28,7 @@ export default function TagCloud({ tags, selectedTags, onTagClick, onTagRemove }
   const sortedTags = sortTags(tags);
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2.5 min-h-[3rem] content-start">
       {sortedTags.map((tag) => (
         <Tag
           key={tag.id}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { ForumComment } from '@/lib/types';
 import CommentInput from './CommentInput';
@@ -12,26 +12,26 @@ interface CommentListProps {
 export default function CommentList({ postId }: CommentListProps) {
   const [comments, setComments] = useState<ForumComment[]>([]);
   const [loading, setLoading] = useState(true);
+  const justPostedIds = useRef<Set<string>>(new Set());
+
+  const fetchComments = useCallback(() => {
+    fetch(`/api/forum/comment?postId=${postId}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to load comments');
+        return res.json();
+      })
+      .then((data) => setComments(Array.isArray(data) ? data : []))
+      .catch((err) => console.error('Failed to load comments:', err))
+      .finally(() => setLoading(false));
+  }, [postId]);
 
   useEffect(() => {
+    fetchComments();
+
+    // Subscribe to realtime comment inserts
     const supabase = createClient();
-
-    async function loadComments() {
-      const { data } = await supabase
-        .from('forum_comments')
-        .select('*, author:profiles(*)')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-
-      setComments((data as ForumComment[]) || []);
-      setLoading(false);
-    }
-
-    loadComments();
-
-    // Subscribe to new comments
     const channel = supabase
-      .channel(`comments-${postId}`)
+      .channel(`comments:${postId}`)
       .on(
         'postgres_changes',
         {
@@ -40,17 +40,14 @@ export default function CommentList({ postId }: CommentListProps) {
           table: 'forum_comments',
           filter: `post_id=eq.${postId}`,
         },
-        async (payload) => {
-          // Fetch the full comment with author
-          const { data } = await supabase
-            .from('forum_comments')
-            .select('*, author:profiles(*)')
-            .eq('id', payload.new.id)
-            .single();
-
-          if (data) {
-            setComments((prev) => [...prev, data as ForumComment]);
+        (payload) => {
+          // Skip if we just posted this comment (already added optimistically)
+          if (justPostedIds.current.has(payload.new.id)) {
+            justPostedIds.current.delete(payload.new.id);
+            return;
           }
+          // Re-fetch to get full comment with author profile
+          fetchComments();
         }
       )
       .subscribe();
@@ -58,7 +55,12 @@ export default function CommentList({ postId }: CommentListProps) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [postId]);
+  }, [postId, fetchComments]);
+
+  const handleCommentAdded = (comment: ForumComment) => {
+    justPostedIds.current.add(comment.id);
+    setComments((prev) => [...prev, comment]);
+  };
 
   if (loading) {
     return <div className="text-sm text-slate-400 py-4">Loading comments...</div>;
@@ -99,7 +101,7 @@ export default function CommentList({ postId }: CommentListProps) {
         </div>
       )}
 
-      <CommentInput postId={postId} />
+      <CommentInput postId={postId} onCommentAdded={handleCommentAdded} />
     </div>
   );
 }

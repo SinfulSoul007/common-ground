@@ -11,10 +11,11 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  const userId = user.id;
   const { data, error } = await supabase
     .from('sessions')
-    .select('id, current_phase, phase1_complete, published_to_forum, created_at, researcher_user_id')
-    .or(`npo_user_id.eq.${user.id},researcher_user_id.eq.${user.id}`)
+    .select('id, current_phase, phase1_complete, published_to_forum, created_at, researcher_user_id, problem_statement')
+    .or(`npo_user_id.eq.${userId},researcher_user_id.eq.${userId}`)
     .order('created_at', { ascending: false });
 
   if (error) {

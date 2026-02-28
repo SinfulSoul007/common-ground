@@ -1,8 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { useUser } from '@/hooks/useUser';
+import { useEffect, useState, useCallback } from 'react';
 import type { ForumPost } from '@/lib/types';
 import ForumPostCard from '@/components/forum/ForumPostCard';
 
@@ -14,55 +12,44 @@ const SORT_OPTIONS = [
 ];
 
 export default function ForumPage() {
-  const { user } = useUser();
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [userUpvotes, setUserUpvotes] = useState<Set<string>>(new Set());
   const [category, setCategory] = useState('all');
   const [sort, setSort] = useState('newest');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const fetchPosts = useCallback(() => {
+    fetch(`/api/forum/posts?category=${category}&sort=${sort}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `Server error: ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setPosts(data.posts ?? []);
+        setUserUpvotes(new Set(data.userUpvotes ?? []));
+      })
+      .catch((err) => {
+        console.error('Failed to load forum posts:', err);
+        setError(err.message || 'Failed to load posts');
+      })
+      .finally(() => setLoading(false));
+  }, [category, sort]);
 
   useEffect(() => {
-    if (!user) return;
-    const supabase = createClient();
+    setLoading(true);
+    setError('');
+    fetchPosts();
+  }, [fetchPosts]);
 
-    async function loadPosts() {
-      try {
-        let query = supabase
-          .from('forum_posts')
-          .select('*, author:profiles(*)');
-
-        if (category !== 'all') {
-          query = query.eq('category', category);
-        }
-
-        if (sort === 'upvotes') {
-          query = query.order('upvote_count', { ascending: false });
-        } else if (sort === 'comments') {
-          query = query.order('comment_count', { ascending: false });
-        } else {
-          query = query.order('created_at', { ascending: false });
-        }
-
-        const { data, error } = await query;
-        if (error) console.error('Forum query error:', error);
-        setPosts((data as ForumPost[]) || []);
-
-        // Load user's upvotes
-        const { data: upvotes } = await supabase
-          .from('forum_upvotes')
-          .select('post_id')
-          .eq('user_id', user.id);
-
-        setUserUpvotes(new Set((upvotes || []).map((u: { post_id: string }) => u.post_id)));
-      } catch (err) {
-        console.error('Failed to load forum posts:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadPosts();
-  }, [category, sort, user]);
+  // Poll so forum list stays in sync with DB (realtime)
+  useEffect(() => {
+    const interval = setInterval(fetchPosts, 4000);
+    return () => clearInterval(interval);
+  }, [fetchPosts]);
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
@@ -103,7 +90,12 @@ export default function ForumPage() {
       </div>
 
       {/* Posts */}
-      {loading ? (
+      {error ? (
+        <div className="text-center py-12">
+          <p className="text-red-500 mb-2">Something went wrong</p>
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      ) : loading ? (
         <div className="text-center py-12 text-slate-400">Loading posts...</div>
       ) : posts.length === 0 ? (
         <div className="text-center py-12">
