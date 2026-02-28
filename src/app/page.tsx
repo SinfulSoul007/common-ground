@@ -1,38 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useSessionStore } from '@/store/sessionStore';
-import RoleSelector from '@/components/landing/RoleSelector';
-import SessionJoinForm from '@/components/landing/SessionJoinForm';
+import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { useUser } from '@/hooks/useUser';
 
 export default function LandingPage() {
   const router = useRouter();
-  const { createSession, joinSession } = useSessionStore();
-  const [showJoinForm, setShowJoinForm] = useState(false);
-  const [joinError, setJoinError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { user, loading } = useUser();
 
-  const handleCreateSession = () => {
-    setLoading(true);
-    const sessionId = createSession('npo');
-    localStorage.setItem(`common-ground-role-${sessionId}`, 'npo');
-    router.push(`/session/${sessionId}/phase1`);
-  };
-
-  const handleJoinSession = (sessionId: string) => {
-    setLoading(true);
-    setJoinError('');
-    const success = joinSession(sessionId, 'researcher');
-    if (success) {
-      localStorage.setItem(`common-ground-role-${sessionId}`, 'researcher');
-      router.push(`/session/${sessionId}/phase1`);
-    } else {
-      setJoinError('Session not found or already has a researcher. Check the ID and try again.');
-      setLoading(false);
+  // If logged in, redirect to dashboard
+  useEffect(() => {
+    if (!loading && user) {
+      router.push('/dashboard');
     }
-  };
+  }, [user, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <div className="text-sm text-slate-400">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-surface">
@@ -50,52 +41,48 @@ export default function LandingPage() {
         </p>
       </motion.div>
 
-      <AnimatePresence mode="wait">
-        {!showJoinForm ? (
-          <motion.div
-            key="selector"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center"
-          >
-            <RoleSelector
-              onSelectNpo={handleCreateSession}
-              onSelectResearcher={() => setShowJoinForm(true)}
-            />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="join-form"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center"
-          >
-            <SessionJoinForm
-              onJoin={handleJoinSession}
-              onBack={() => {
-                setShowJoinForm(false);
-                setJoinError('');
-              }}
-              error={joinError}
-              loading={loading}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+        className="flex flex-col sm:flex-row gap-4"
+      >
+        <Link
+          href="/signup"
+          className="px-8 py-3 bg-primary text-white rounded-xl font-medium text-center hover:bg-primary/90 transition-colors shadow-sm"
+        >
+          Get Started
+        </Link>
+        <Link
+          href="/login"
+          className="px-8 py-3 bg-white text-slate-700 rounded-xl font-medium text-center border border-slate-200 hover:bg-slate-50 transition-colors"
+        >
+          Sign In
+        </Link>
+      </motion.div>
 
-      <motion.p
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.8 }}
-        className="mt-12 text-sm text-slate-400 text-center max-w-md"
+        className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl"
       >
-        NPOs create a session, then share the session ID with their research partner.
-        Open two browser tabs to demo the full experience.
-      </motion.p>
+        <div className="text-center p-4">
+          <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-3 text-lg font-bold">1</div>
+          <h3 className="font-medium text-slate-700 mb-1">Define Your Challenge</h3>
+          <p className="text-sm text-slate-400">NPOs explore and combine concepts to articulate their problem.</p>
+        </div>
+        <div className="text-center p-4">
+          <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center mx-auto mb-3 text-lg font-bold">2</div>
+          <h3 className="font-medium text-slate-700 mb-1">Find a Researcher</h3>
+          <p className="text-sm text-slate-400">Post your problem on the forum. Researchers browse and join.</p>
+        </div>
+        <div className="text-center p-4">
+          <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center mx-auto mb-3 text-lg font-bold">3</div>
+          <h3 className="font-medium text-slate-700 mb-1">Scope Together</h3>
+          <p className="text-sm text-slate-400">AI-facilitated Q&amp;A aligns both parties on a project charter.</p>
+        </div>
+      </motion.div>
     </div>
   );
 }

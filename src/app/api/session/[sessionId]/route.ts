@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseServer } from '@/lib/supabase/server';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
+  const supabase = await createSupabaseServer();
 
-  // For hackathon: state is client-side, so we always return exists: true
-  // as long as a sessionId was provided
-  if (sessionId) {
-    return NextResponse.json({ exists: true });
-  }
+  const { data } = await supabase
+    .from('sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .single();
 
-  return NextResponse.json({ exists: false });
+  return NextResponse.json({ exists: !!data });
 }

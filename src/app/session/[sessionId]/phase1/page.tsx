@@ -41,6 +41,9 @@ export default function Phase1Page() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedProblem, setGeneratedProblem] = useState<ProblemStatement | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+  const [publishCategory, setPublishCategory] = useState('general');
 
   // Researcher auto-navigate to phase2 when phase1 completes
   useEffect(() => {
@@ -184,6 +187,37 @@ export default function Phase1Page() {
       setErrorMessage(msg);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // Publish to forum via API route (avoids client-side auth issues)
+  const handlePublishToForum = async () => {
+    if (!generatedProblem) return;
+    setIsPublishing(true);
+
+    try {
+      const res = await fetch('/api/forum/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          plainEnglish: generatedProblem.plainEnglish,
+          technicalInterpretation: generatedProblem.technicalInterpretation,
+          tags: generatedProblem.finalTags,
+          category: publishCategory,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `Server error: ${res.status}`);
+      }
+
+      setPublished(true);
+    } catch (error) {
+      console.error('Error publishing to forum:', error);
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -475,8 +509,45 @@ export default function Phase1Page() {
               The researcher will receive a technical interpretation of this problem. You don&apos;t need to worry about the technical details.
             </p>
 
+            {/* Publish to Forum */}
+            <div className="border-t border-slate-200 pt-4">
+              <h4 className="text-sm font-medium text-slate-700 mb-2">Post to the Forum</h4>
+              <p className="text-xs text-slate-400 mb-3">
+                Publish your problem statement so researchers can discover and join your project.
+              </p>
+              <div className="flex items-center gap-2 mb-3">
+                <label className="text-xs text-slate-500">Category:</label>
+                <select
+                  value={publishCategory}
+                  onChange={(e) => setPublishCategory(e.target.value)}
+                  className="rounded border border-slate-300 px-2 py-1 text-xs focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                >
+                  <option value="general">General</option>
+                  <option value="education">Education</option>
+                  <option value="health">Health</option>
+                  <option value="environment">Environment</option>
+                  <option value="poverty">Poverty</option>
+                  <option value="technology">Technology</option>
+                </select>
+              </div>
+              {published ? (
+                <div className="text-sm text-green-600 font-medium bg-green-50 rounded-lg px-3 py-2">
+                  Published to forum! Researchers can now find your project.
+                </div>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={handlePublishToForum}
+                  loading={isPublishing}
+                  className="w-full"
+                >
+                  {isPublishing ? 'Publishing...' : 'Publish to Forum'}
+                </Button>
+              )}
+            </div>
+
             <Button onClick={handleConfirmProblem} className="w-full">
-              Confirm &amp; Continue to Negotiation
+              {published ? 'Continue to Negotiation' : 'Skip Forum & Continue'}
             </Button>
           </div>
         )}

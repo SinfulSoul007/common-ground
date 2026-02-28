@@ -2,23 +2,20 @@
 
 import { useEffect } from 'react';
 import { useSessionStore } from '@/store/sessionStore';
-import { usePolling } from './usePolling';
-import type { Role } from '@/lib/types';
+import { useRealtimeSession } from './useRealtimeSession';
+import { useUser } from './useUser';
 
 export function useSession(sessionId: string) {
   const store = useSessionStore();
+  const { profile } = useUser();
 
   useEffect(() => {
-    if (!sessionId || store.initialized) return;
-    // Try to load from localStorage on mount
-    const storedRole = localStorage.getItem(`common-ground-role-${sessionId}`) as Role | null;
-    if (storedRole) {
-      store.loadSession(sessionId, storedRole);
-    }
-  }, [sessionId, store.initialized]);
+    if (!sessionId || store.initialized || !profile) return;
+    store.loadSession(sessionId, profile.role);
+  }, [sessionId, store.initialized, profile]);
 
-  // Enable cross-tab polling
-  usePolling(sessionId);
+  // Enable Supabase Realtime sync
+  useRealtimeSession(sessionId);
 
   return store;
 }

@@ -1,6 +1,46 @@
 export type Role = 'npo' | 'researcher';
 export type Phase = 1 | 2 | 3;
 
+// ---- Auth & Forum types ----
+
+export interface Profile {
+  id: string;
+  display_name: string;
+  role: Role;
+  avatar_url: string | null;
+  created_at: string;
+}
+
+export interface ForumPost {
+  id: string;
+  session_id: string;
+  author_id: string;
+  title: string;
+  plain_english: string;
+  technical_interpretation: string;
+  tags: Tag[];
+  category: string;
+  upvote_count: number;
+  comment_count: number;
+  status: 'open' | 'in_progress' | 'completed';
+  created_at: string;
+  author?: Profile;
+}
+
+export interface ForumComment {
+  id: string;
+  post_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  author?: Profile;
+}
+
+export interface ForumUpvote {
+  post_id: string;
+  user_id: string;
+}
+
 export interface Tag {
   id: string;
   label: string;

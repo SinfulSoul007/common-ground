@@ -1,14 +1,19 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useSession } from '@/hooks/useSession';
+import { useUser } from '@/hooks/useUser';
+import { createClient } from '@/lib/supabase/client';
 import { PHASE_NAMES } from '@/lib/constants';
 
 export default function SessionLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.sessionId as string;
   const { currentPhase, role } = useSession(sessionId);
+  const { profile } = useUser();
   const [copied, setCopied] = useState(false);
 
   const copySessionId = () => {
@@ -17,24 +22,29 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/');
+  };
+
   const phases = [1, 2, 3] as const;
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       {/* Top Bar */}
       <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
-        {/* Left: Logo */}
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
+        {/* Left: Logo + Dashboard Link */}
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="text-lg font-bold bg-gradient-to-r from-slate-800 to-primary bg-clip-text text-transparent">
             Common Ground
-          </span>
+          </Link>
         </div>
 
         {/* Center: Phase Indicator */}
         <div className="flex items-center gap-0">
           {phases.map((phase, i) => (
             <div key={phase} className="flex items-center">
-              {/* Phase circle */}
               <div className="flex flex-col items-center gap-1">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
@@ -45,7 +55,7 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
                         : 'bg-slate-100 text-slate-400'
                   }`}
                 >
-                  {phase < currentPhase ? '✓' : phase}
+                  {phase < currentPhase ? '\u2713' : phase}
                 </div>
                 <span
                   className={`text-xs ${
@@ -55,7 +65,6 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
                   {PHASE_NAMES[phase]}
                 </span>
               </div>
-              {/* Connector line */}
               {i < phases.length - 1 && (
                 <div
                   className={`w-16 h-0.5 mx-2 mb-5 ${
@@ -67,7 +76,7 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
           ))}
         </div>
 
-        {/* Right: Session ID + Role */}
+        {/* Right: Session ID + User */}
         <div className="flex items-center gap-3">
           <button
             onClick={copySessionId}
@@ -89,9 +98,18 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
                   : 'bg-blue-100 text-blue-800'
               }`}
             >
-              {role === 'npo' ? '🏛️ NPO' : '🔬 Researcher'}
+              {role === 'npo' ? 'NPO' : 'Researcher'}
             </span>
           )}
+          {profile && (
+            <span className="text-sm text-slate-500">{profile.display_name}</span>
+          )}
+          <button
+            onClick={handleLogout}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
